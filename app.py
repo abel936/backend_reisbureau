@@ -8,7 +8,7 @@ CORS(app)
 
 @app.route('/')
 def home():
-    return "This is the 'Urban Myths' home page."
+    return "This is the 'Reisbureau' home page."
 
 @app.route("/abel", methods=["GET", "POST"])
 def abel_route():
