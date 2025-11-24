@@ -1,17 +1,22 @@
+from connect_with_db import get_connection
+from flask import abort
 
-def get_users():
-  """
-  Return all users from the table: Users in a dictionary with ID and first name
-  """
-  myconn, mycursor = get_cursor()
-  mycursor.execute("""SELECT PersonID, FirstName, LastName FROM users""")
-  users = mycursor.fetchall()
-  users = [{"PersonID": user[0], "FullName": user[1] + " " + user[2]} for user in users]
-
-  close_conn(myconn, mycursor)
-
-  return users
+def get_info():
+    """some function that returns info from db"""
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT DISTINCT(name) from dbo.Airports;
+                """)
+                rows = cur.fetchall()
+                cols = [d[0] for d in cur.description]
+    except Exception as e:
+        abort(500, f"DB error: {e}")
+    return cols
 
 def start():
     """This function returns the output on the /abel page"""
-    return
+    return get_info()
+
+start()
