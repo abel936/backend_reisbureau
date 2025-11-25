@@ -10,6 +10,14 @@ def rows_to_dicts(cursor, rows):
     columns = [col[0] for col in cursor.description]
     return [dict(zip(columns, row)) for row in rows]
 
+def hash_password_with_salt(password: str, salt: bytes) -> bytes:
+    """
+    Must match SQL:
+    HASHBYTES('SHA2_256', salt + CONVERT(VARBINARY(4000), plain_password NVARCHAR))
+    """
+    # NVARCHAR in SQL Server is UTF-16LE under the hood
+    password_bytes = password.encode("utf-16le")
+    return hashlib.sha256(salt + password_bytes).digest()
 
 def hash_password(password: str) -> bytes:
     """
@@ -29,9 +37,12 @@ def login():
       - stores user_id in session["user_id"]
       - returns basic user info
     """
+    print("DEBUG: login request received")
     data = request.get_json(silent=True) or {}
     username = data.get("username", "").strip()
     password = data.get("password", "")
+    print("DEBUG: username from request:", username)
+    print("DEBUG: password from request:", password)
 
     if not username or not password:
         return jsonify({"success": False, "error": "Username and password required"}), 400
@@ -50,21 +61,25 @@ def login():
                 user_id,
                 username,
                 full_name,
-                password_hash
+                password_hash,
+                password_salt
             FROM Users
             WHERE username = ?
             """,
             (username,),
         )
         row = cursor.fetchone()
+        print("DEBUG: user row from DB:", row)   # or row.username, row.password_hash
 
         if row is None:
             return jsonify({"success": False, "error": "Invalid username or password"}), 401
 
-        db_user_id, db_username, db_full_name, db_password_hash = row
+        db_user_id, db_username, db_full_name, db_password_hash, db_password_salt = row
 
         # Check password
-        expected_hash = hash_password(password)
+        expected_hash = hash_password_with_salt(password, db_password_salt)
+        print("DEBUG: provided password hash:", expected_hash)
+        print("DEBUG: stored password hash:", db_password_hash)
 
         # db_password_hash from pyodbc is already bytes for VARBINARY
         if db_password_hash != expected_hash:

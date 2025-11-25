@@ -4,9 +4,12 @@ import abel, bente, donny, julian, esmee
 import os
 
 app = Flask(__name__)
-CORS(app)
-app.secret_key = os.getenv("FLASK_SECRET_KEY", "default_secret_key")
+CORS(app, supports_credentials=True, origins=["null", "http://127.0.0.1:5500", "http://localhost:5500"])  # Enable CORS with credentials support
 
+app.config["SESSION_COOKIE_SAMESITE"] = "None"
+app.config["SESSION_COOKIE_SECURE"] = True   # REQUIRED or cookie is rejected
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "default_secret_key")
 
 @app.route('/')
 def home():
