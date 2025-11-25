@@ -20,9 +20,9 @@ def departure_from():
     result = abel.get_all_airports_we_can_depart_from()
     return result
 
-@app.route("/abel/arriveAt", methods=["GET", "POST"])
-def arrive_at():
-    result = abel.get_all_arrival_airports_departing_from()
+@app.route("/abel/arrivalAt", methods=["GET", "POST"])
+def arrival_at():
+    result = abel.get_all_arrival_airports_departing_from(request.get_json())
     return result
 
 @app.route("/bente", methods=["GET", "POST"])
