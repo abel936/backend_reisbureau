@@ -1,9 +1,11 @@
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 import abel, bente, donny, julian, esmee
+import os
 
 app = Flask(__name__)
 CORS(app)
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "default_secret_key")
 
 
 @app.route('/')
@@ -25,10 +27,17 @@ def donny_route():
     result = donny.start()
     return result
 
-@app.route("/julian", methods=["GET", "POST"])
+@app.route("/julian", methods=["GET"])
 def julian_route():
-    result = julian.start()
-    return result
+    return julian.start()
+
+@app.route("/julian/login", methods=["POST"])
+def julian_login():
+    return julian.login()
+
+@app.route("/julian/logout", methods=["POST"])
+def julian_logout():
+    return julian.logout()
 
 @app.route("/esmee", methods=["GET", "POST"])
 def esmee_route():
@@ -36,4 +45,4 @@ def esmee_route():
     return result
 
 if __name__ == '__main__':  
-    app.run(debug=True)
+    app.run(debug=True, port=5001)
