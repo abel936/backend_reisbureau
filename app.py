@@ -15,6 +15,16 @@ def abel_route():
     result = abel.start()
     return result
 
+@app.route("/abel/departureFrom", methods=["GET", "POST"])
+def departure_from():
+    result = abel.get_all_airports_we_can_depart_from()
+    return result
+
+@app.route("/abel/arriveAt", methods=["GET", "POST"])
+def arrive_at():
+    result = abel.get_all_arrival_airports_departing_from()
+    return result
+
 @app.route("/bente", methods=["GET", "POST"])
 def bente_route():
     result = bente.start()
