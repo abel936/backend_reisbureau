@@ -52,10 +52,10 @@ def start():
         f"{beschikbare_bestemmingen}\n\n"
         "Houd rekening met: type reis, periode, aantal personen, vervoer, regio, uitgesloten landen, budget, duur, voorkeuren. "
         "Geef als output:\n"
-        "- Klantnaam\n"
-        "- Bestemming (stad/land)\n"
-        "- Type reis (citytrip, zonvakantie, rondreis)\n"
-        "- Korte motivatie waarom deze bestemming past.\n\n"
+        "Klantnaam\n"
+        "Bestemming (1 stad/land)\n"
+        "Type reis (citytrip, zonvakantie, rondreis)\n"
+        "Korte motivatie waarom deze bestemming past.\n\n"
         f"Antwoorden van klant:\n{antwoorden}"
     )
 
@@ -94,13 +94,38 @@ def start():
             """, (clientname_mt, destination_mt, traveltype_mt, motivation_mt))
             conn.commit()
 
-    #teaser voor klant
+  
+
+    
+    def genereer_paklijst_tekst(clientname_mt, antwoorden, destination_mt, traveltype_mt):
+        prompt2 = (
+            f"Maak een duidelijke paklijst voor een {traveltype_mt} naar {destination_mt}. "
+            f"Houd rekening met: periode ({antwoorden.get('Wanneer?')}), "
+            f"aantal dagen ({antwoorden.get('Hoeveel dagen wil je weg?')}), "
+            f"vervoer ({antwoorden.get('Hoe wil je reizen? (vliegtuig of auto)')}), "
+            f"voorkeuren ({antwoorden.get('Specifieke voorkeuren? (strand, cultuur, natuur, avontuur)')}). "
+            "Geef de lijst netjes in categorieën (Kleding, Documenten, Gadgets, Extra)."
+            "Je mag NOOIT de daadwerkelijke bestemming verraden."
+        )
+
+        completion2 = client.chat.completions.create(
+            model="gpt-4o-mini",
+            temperature=0.5,
+            max_tokens=400,
+            messages=[
+                {"role": "system", "content": "Je bent een reisexpert en maakt een praktische paklijst."},
+                {"role": "user", "content": prompt2}
+            ]
+        )
+
+        return completion2.choices[0].message.content.strip()
+        
+    paklijst_tekst = genereer_paklijst_tekst(client, antwoorden, destination_mt, traveltype_mt)
+    
+      #teaser voor klant
     print(f"TEASER VOOR DE KLANT:")
     print(f"De reis is bepaald! Binnekort kun jij genieten van je ideale {traveltype_mt}")
-
-
-    #print("\nAI-advies:")
-    #print(completion.choices[0].message.content.strip())
+    print("Paklijst:\n", paklijst_tekst)
 start()
 
 
