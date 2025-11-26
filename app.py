@@ -57,6 +57,10 @@ def julian_login():
 def julian_logout():
     return julian.logout()
 
+@app.route("/julian/ai_recommendation", methods=["POST"])
+def julian_ai_recommendation_route():
+    return julian.ai_recommendation()
+
 @app.route("/esmee", methods=["GET", "POST"])
 def esmee_route():
     result = esmee.start()
