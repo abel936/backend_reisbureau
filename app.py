@@ -30,6 +30,11 @@ def arrival_at():
     result = abel.get_all_arrival_airports_departing_from(request.get_json())
     return result
 
+@app.route("/abel/computeEmissions", methods=["GET", "POST"])
+def compute_emissions():
+    result = abel.compute_emissions(request.get_json())
+    return result
+
 @app.route("/bente", methods=["GET", "POST"])
 def bente_route():
     result = bente.start()
