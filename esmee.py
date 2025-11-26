@@ -22,9 +22,11 @@ def start():
 
     # lijst beschikbare bestemmingen
     beschikbare_bestemmingen = [f"{row.CityName}, {row.CountryName}" for row in rows]
+    print(beschikbare_bestemmingen)
 
     #vragen voor chatbot
     vragen = [
+        "Wat is je naam?",
         "Wat voor soort reis? (zonvakantie, citytrip, rondreis)",
         "Wanneer?",
         "Met hoeveel personen?",
@@ -50,6 +52,7 @@ def start():
         f"{beschikbare_bestemmingen}\n\n"
         "Houd rekening met: type reis, periode, aantal personen, vervoer, regio, uitgesloten landen, budget, duur, voorkeuren. "
         "Geef als output:\n"
+        "- Klantnaam\n"
         "- Bestemming (stad/land)\n"
         "- Type reis (citytrip, zonvakantie, rondreis)\n"
         "- Korte motivatie waarom deze bestemming past.\n\n"
@@ -70,24 +73,30 @@ def start():
     advies =completion.choices[0].message.content.strip()
 
     regels = advies.split("\n")
-    bestemming = regels[0].replace("Bestemming:", "").strip()
-    reistype = regels[1].replace("Type reis:", "").strip()
-    motivatie = regels[2].replace("Motivatie:", "").strip()
+    clientname_mt = regels[0].replace("Klantnaam:", "").strip()
+    destination_mt = regels[1].replace("Bestemming:", "").strip()
+    traveltype_mt = regels[2].replace("Type reis:", "").strip()
+    motivation_mt = regels[3].replace("Motivatie:", "").strip()
 
     #interne info
     print("INTERNE INFO:")
-    print(f"Bestemming: {bestemming}")
-    print(f"Type reis: {reistype}")
-    print(f"Motivatie: {motivatie}")
+    print(f"Klantnaam: {clientname_mt}")
+    print(f"Bestemming: {destination_mt}")
+    print(f"Type reis: {traveltype_mt}")
+    print(f"Motivatie: {motivation_mt}")
+
+    #interne info naar database
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO InternalInfo (clientname_mt, destination_mt, traveltype_mt, motivation_mt)
+                VALUES (?, ?, ?, ?)
+            """, (clientname_mt, destination_mt, traveltype_mt, motivation_mt))
+            conn.commit()
 
     #teaser voor klant
     print(f"TEASER VOOR DE KLANT:")
-    print(f"De reis is bepaald! Binnekort kun jij genieten van je ideale {reistype}")
-
-
-    #database 
-
-
+    print(f"De reis is bepaald! Binnekort kun jij genieten van je ideale {traveltype_mt}")
 
 
     #print("\nAI-advies:")
