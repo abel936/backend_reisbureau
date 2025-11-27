@@ -1,61 +1,72 @@
+from flask import request, jsonify
 from openai import OpenAI
 from dotenv import load_dotenv
-import os 
+import os
 from connect_with_db import get_connection
-load_dotenv() 
 
+load_dotenv()
 apikey = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=apikey)
 
 def start():
-    client = OpenAI(api_key=apikey)
+    # Haal JSON uit de POST-body
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Geen JSON ontvangen"}), 400
 
-    #connectie database
+    # Lees velden uit data
+    naam = data.get("naam")
+    soort_reis = data.get("soort_reis")
+    wanneer = data.get("wanneer")
+    aantal_personen = data.get("aantal_personen")
+    vervoer = data.get("vervoer")
+    regio = data.get("regio")
+    uitgesloten_landen = data.get("uitgesloten_landen", "")
+    budget_pp_eur = data.get("budget_pp_eur")
+    aantal_dagen = data.get("aantal_dagen")
+    voorkeuren = data.get("voorkeuren", "")
+    opmerkingen = data.get("opmerkingen", "")
+
+    # connectie database
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT Countries.name AS CountryName, Cities.name AS CityName
                 FROM Cities
                 LEFT JOIN Countries ON Countries.country_id = Cities.country_id;
-                """)
+            """)
             rows = cur.fetchall()
-
-
-    # lijst beschikbare bestemmingen
     beschikbare_bestemmingen = [f"{row.CityName}, {row.CountryName}" for row in rows]
 
-    #vragen voor chatbot
-    vragen = [
-        "Wat voor soort reis? (zonvakantie, citytrip, rondreis)",
-        "Wanneer?",
-        "Met hoeveel personen?",
-        "Hoe wil je reizen? (vliegtuig of auto)",
-        "Binnen of buiten Europa?",
-        "Welke landen niet?",
-        "Budget (per persoon in euro's)?",
-        "Hoeveel dagen wil je weg?",
-        "Specifieke voorkeuren? (strand, cultuur, natuur, avontuur)",
-        "Vrije opmerkingen?"
-    ]
-
-    antwoorden = {}
-    print("Mysterytrip vragenlijst:\n")
-    for vraag in vragen:
-        antwoord = input(f"{vraag}\n> ")
-        antwoorden[vraag] = antwoord
+    # Bestemming prompt
+    antwoorden = {
+        "Wat is je naam?": naam,
+        "Wat voor soort reis?": soort_reis,
+        "Wanneer?": wanneer,
+        "Met hoeveel personen?": aantal_personen,
+        "Hoe wil je reizen?": vervoer,
+        "Binnen of buiten Europa?": regio,
+        "Welke landen niet?": uitgesloten_landen,
+        "Budget": budget_pp_eur,
+        "Hoeveel dagen wil je weg?": aantal_dagen,
+        "Specifieke voorkeuren?": voorkeuren,
+        "Vrije opmerkingen?": opmerkingen
+    }
 
     prompt = (
         "Je bent een reisconsulent voor een mysterytrip. "
         "Analyseer alle antwoorden en kies een bestemming die perfect past bij de wensen. "
-        "Je mag ALLEEN kiezen uit deze lijst:\n"
-        f"{beschikbare_bestemmingen}\n\n"
-        "Houd rekening met: type reis, periode, aantal personen, vervoer, regio, uitgesloten landen, budget, duur, voorkeuren. "
+        f"Je mag ALLEEN kiezen uit deze lijst:\n{beschikbare_bestemmingen}\n\n"
         "Geef als output:\n"
-        "- Bestemming (stad/land)\n"
-        "- Type reis (citytrip, zonvakantie, rondreis)\n"
-        "- Korte motivatie waarom deze bestemming past.\n\n"
+        "Klantnaam\nBestemming\nType reis\nMotivatie\n\n"
+        "Regels voor de motivatie:"
+        "- Korte motivatie waarom deze bestemming past."
+        "- De motivatie mag NOOIT de naam van de bestemming bevatten."
+        "- De motivatie moet eindigen met een leuke, subtiele hint over de bestemming zonder de naam te noemen."
         f"Antwoorden van klant:\n{antwoorden}"
     )
 
+    
     completion = client.chat.completions.create(
         model="gpt-4o-mini",
         temperature=0.7,
@@ -66,33 +77,50 @@ def start():
         ]
     )
 
-    #antwoord splitten
-    advies =completion.choices[0].message.content.strip()
-
+    #advies splitten
+    advies = completion.choices[0].message.content.strip()
     regels = advies.split("\n")
-    bestemming = regels[0].replace("Bestemming:", "").strip()
-    reistype = regels[1].replace("Type reis:", "").strip()
-    motivatie = regels[2].replace("Motivatie:", "").strip()
+    klantnaam = regels[0].replace("Klantnaam:", "").strip()
+    bestemming = regels[1].replace("Bestemming:", "").strip()
+    type_reis = regels[2].replace("Type reis:", "").strip()
+    motivatie = regels[3].replace("Motivatie:", "").strip()
 
-    #interne info
-    print("INTERNE INFO:")
-    print(f"Bestemming: {bestemming}")
-    print(f"Type reis: {reistype}")
-    print(f"Motivatie: {motivatie}")
+    #bestemmingsgegevens opslaan in database
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO InternalInfo (clientname_mt, destination_mt, traveltype_mt, motivation_mt)
+                VALUES (?, ?, ?, ?)
+            """, (klantnaam, bestemming, type_reis, motivatie))
+            conn.commit()
 
-    #teaser voor klant
-    print(f"TEASER VOOR DE KLANT:")
-    print(f"De reis is bepaald! Binnekort kun jij genieten van je ideale {reistype}")
+    #Paklijst prompt
+    prompt2 = (
+        f"Maak een duidelijke paklijst voor een {type_reis} naar {bestemming}. "
+        f"Houd rekening met: periode ({wanneer}), aantal dagen ({aantal_dagen}), vervoer ({vervoer}), voorkeuren ({voorkeuren}). "
+        "Geef de lijst netjes in categorieën (Kleding, Documenten, Gadgets, Extra). "
+        "Je mag NOOIT de daadwerkelijke bestemming verraden."
+    )
 
+    completion2 = client.chat.completions.create(
+        model="gpt-4o-mini",
+        temperature=0.5,
+        max_tokens=400,
+        messages=[
+            {"role": "system", "content": "Je bent een reisexpert en maakt een praktische paklijst."},
+            {"role": "user", "content": prompt2}
+        ]
+    )
 
-    #database 
+    paklijst = completion2.choices[0].message.content.strip()
 
-
-
-
-    #print("\nAI-advies:")
-    #print(completion.choices[0].message.content.strip())
-# start()
-
+    #JSON
+    return jsonify({
+        "klantnaam": klantnaam,
+        "bestemming": bestemming,
+        "type_reis": type_reis,
+        "motivatie": motivatie,
+        "paklijst": paklijst
+    })
 
 
