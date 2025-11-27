@@ -92,7 +92,7 @@ def start():
 
     #print("\nAI-advies:")
     #print(completion.choices[0].message.content.strip())
-start()
+# start()
 
 
 
