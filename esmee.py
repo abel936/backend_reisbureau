@@ -59,6 +59,10 @@ def start():
         f"Je mag ALLEEN kiezen uit deze lijst:\n{beschikbare_bestemmingen}\n\n"
         "Geef als output:\n"
         "Klantnaam\nBestemming\nType reis\nMotivatie\n\n"
+        "Regels voor de motivatie:"
+        "- Korte motivatie waarom deze bestemming past."
+        "- De motivatie mag NOOIT de naam van de bestemming bevatten."
+        "- De motivatie moet eindigen met een leuke, subtiele hint over de bestemming zonder de naam te noemen."
         f"Antwoorden van klant:\n{antwoorden}"
     )
 
@@ -81,7 +85,7 @@ def start():
     type_reis = regels[2].replace("Type reis:", "").strip()
     motivatie = regels[3].replace("Motivatie:", "").strip()
 
-    # Opslaan in DB
+    #bestemmingsgegevens opslaan in database
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
