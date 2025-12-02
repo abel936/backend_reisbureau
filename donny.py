@@ -4,10 +4,7 @@ from openai import OpenAI
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-#basic query voor data luchthavens
+#query om alle luchthavens op te halen voor vertrek dropdown
 def start():
     connection = get_connection()
     cursor = connection.cursor()
@@ -22,7 +19,7 @@ def start():
     connection.close()
     return data
 
-#informatie voor vluchtmogelijkheden
+#query om beschikbare aankomstluchthavens op te halen, met laagste prijs
 def get_destinations_from_departure():
     payload = request.get_json()
     iata_code = payload.get("iata_code")
@@ -52,3 +49,42 @@ def get_destinations_from_departure():
     cursor.close()
     connection.close()
     return data
+
+#toevoegen luchthaven
+# def add_airport():
+#     data = request.get_json() or {}
+#     name            = data.get("name")
+#     iata_code       = data.get("iata_code")
+#     latitude        = data.get("latitude")
+#     longitude       = data.get("longitude")
+#     conn = get_connection()
+#     cursor = conn.cursor()
+
+#     cursor.execute("""
+#         INSERT INTO dbo.Airports (
+#             name,
+#             iata_code,
+#             latitude,
+#             longitude
+#         )
+#         VALUES (?, ?, ?, ?);
+#     """, (
+#         name,
+#         iata_code,
+#         latitude,
+#         longitude
+#     ))
+
+#     conn.commit()
+#     cursor.close()
+#     conn.close()
+
+#     return {
+#         "message": "Luchthaven toegevoegd",
+#         "airport": {
+#             "name": name,
+#             "iata_code": iata_code,
+#             "latitude": latitude,
+#             "longitude": longitude
+#         }
+#     }
