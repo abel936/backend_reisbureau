@@ -1,130 +1,220 @@
 from connect_with_db import get_connection
-from flask import abort, jsonify
+from flask import abort
 from math import radians, sin, cos, sqrt, atan2
 from openai import OpenAI
 import os
-from dotenv import load_dotenv, dotenv_values 
-load_dotenv() 
+from dotenv import load_dotenv
+from datetime import datetime
+from MLmodel import predict_capacity_percentage
 
-# accessing and printing value
-print(os.getenv("MY_KEY"))
+# Load environment variables and initialize client globally
+load_dotenv()
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# Constants
+EMISSION_FACTOR = 3.203
+PASSENGER_FACTOR = 0.0365
+
+def execute_query(query: str, params: tuple = ()):
+    """
+    Execute an SQL query and return results. Handles DB errors and connection cleanup.
+    """
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query, params)
+                rows = cur.fetchall()
+                if rows: 
+                    return rows 
+                return abort(404, "QUERY yields no results")
+    except Exception as e:
+        abort(500, f"Database error: {e}")
+
 
 def get_all_airports_we_can_depart_from():
-    """get all airports from which flights have departed"""
-    try:
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT DISTINCT(ai.airport_id), ai.name 
-                    FROM flights fl
-                    LEFT JOIN airports ai
-                    ON ai.airport_id = fl.departure_airport_id
-                """)
-                rows = cur.fetchall()
-                output = [{"airportID": row[0], "airportName": row[1]} for row in rows]
-    except Exception as e:
-        abort(500, f"DB error: {e}")
-    return output
+    """
+    Get all airports flight have/will depart from
+    """
+    rows = execute_query("""
+        SELECT DISTINCT(ai.airport_id), ai.name 
+        FROM flights fl
+        LEFT JOIN airports ai ON ai.airport_id = fl.departure_airport_id
+    """)
+    return [{"airportID": row[0], "airportName": row[1]} for row in rows]
+
+def get_all_airline_names():
+    """
+    Get all airline names
+    """
+    rows = execute_query("""
+        select distinct(airline_id), name from airlines    
+    """)
+    return [{"airlineID": row[0], "airlineName": row[1]} for row in rows]
+
 
 def get_all_arrival_airports_departing_from(data):
-    """based on a given airport, return all airports that the flight can arrive, based on flight data"""
+    """
+    Get all airports flights have/will arrive at based on departure airport
+    """
     selected_airport = int(data.get('fly_from'))
-    try:
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT DISTINCT(ai.airport_id), ai.name
-                    FROM airports ai
-                    JOIN flights fl ON fl.arrival_airport_id = ai.airport_id
-                    WHERE fl.departure_airport_id = ?
-                """, (selected_airport,))
-                rows = cur.fetchall()
-                output = [{"airportID": row[0], "airportName": row[1]} for row in rows]
-    except Exception as e:
-        abort(500, f"DB error: {e}")
-    return output
+    rows = execute_query("""
+        SELECT DISTINCT(ai.airport_id), ai.name
+        FROM airports ai
+        JOIN flights fl ON fl.arrival_airport_id = ai.airport_id
+        WHERE fl.departure_airport_id = ?
+    """, (selected_airport,))
+    return [{"airportID": row[0], "airportName": row[1]} for row in rows]
+
 
 def get_coordinates(airport_id):
-    try:
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    select latitude, longitude from Airports where airport_id = ?
-                """, (airport_id,))
-                rows = cur.fetchall()
-                output = [{"latitude": row[0], "longitude": row[1]} for row in rows]
-    except Exception as e:
-        abort(500, f"DB error: {e}")
-    return output
+    """
+    Get coordinates of an airport based on its ID
+    """
+    rows = execute_query("""
+        SELECT latitude, longitude FROM Airports WHERE airport_id = ?
+    """, (airport_id,))
+    return [{"latitude": row[0], "longitude": row[1]} for row in rows][0]
 
 
 def compute_distance_between_airports(coord1, coord2):
-    """compute the distance between two sets of coordinates taking into consideration
-    the curvature of the earth"""
-    # Radius of Earth in kilometers
+    """
+    Based on two sets of coordinates, compute the distance.
+    Take into consideration the curvature of the earth
+    """
     R = 6371.0
-
-    lat1, lon1 = int(coord1['latitude']), int(coord1['longitude'])
-    lat2, lon2 = int(coord2['latitude']), int(coord2['longitude'])
-
-    # Convert degrees to radians
-    lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
-
-    # Differences
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-
-    # Haversine formula
+    lat1, lon1 = map(radians, [float(coord1['latitude']), float(coord1['longitude'])])
+    lat2, lon2 = map(radians, [float(coord2['latitude']), float(coord2['longitude'])])
+    dlat, dlon = lat2 - lat1, lon2 - lon1
     a = sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2
-    c = 2 * atan2(sqrt(a), sqrt(1 - a))
+    return R * 2 * atan2(sqrt(a), sqrt(1 - a))
 
-    distance = R * c
-    return distance
 
 def perspective_emission_chatGPT(emissions_in_kg):
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-    prompt = f"""
-    Je bent een chatbot die mensen helpt de milieu-impact van vliegen begrijpelijk en invoelbaar te maken voor een gemiddelde Nederlandse volwassene.
-
-    Je krijgt het totale aantal emissies in kilogram CO₂ voor één passagier: {emissions_in_kg} kg.
-
-    Maak een kort, toegankelijk en beeldend stukje tekst (2 zinnen) met deze instructies:
-
-    1. Schat hoeveel bomen nodig zijn om deze CO₂ in één jaar te absorberen.
-    2. Gebruik hiervoor de aanname dat één volwassen boom gemiddeld 20 kg CO₂ per jaar opneemt.
-    3. Presenteer het aantal benodigde bomen GROOT en ROOD.
-    4. Noem expliciet de gebruikte aanname (20 kg per boom per jaar).
-    5. Zorg dat de vergelijking begrijpelijk, concreet en beeldend is.
-
-    Gebruik eenvoudige HTML-opmaak (zoals <b> voor vetgedrukt) en vermijd speciale tekens die innerHTML kunnen breken
-    Lever alleen de uiteindelijke tekst, zonder uitleg over je berekeningen.
-    We praten hier al tegen deze passigier, dus betrek het op diegene.
     """
+    This chatGPT API procudes a narrative that places the total emissions into perspective.
+    """
+    prompt = f"""
+        Je bent een chatbot die mensen helpt de milieu-impact van vliegen begrijpelijk en invoelbaar te maken voor een gemiddelde Nederlandse volwassene.
+
+        Je krijgt het totale aantal emissies in kilogram CO₂ voor één passagier: {emissions_in_kg} kg.
+
+        Maak een kort, toegankelijk en beeldend stukje tekst (2 (korte) zinnen) met deze instructies:
+
+        1. Schat hoeveel bomen nodig zijn om deze CO₂ in EEN! (1) jaar te absorberen. Maak er een rond getal van.
+        2. Gebruik hiervoor de aanname dat één volwassen boom gemiddeld 20 kg CO₂ per jaar opneemt.
+        3. Presenteer het aantal benodigde bomen GROOT en ROOD.
+        4. Noem expliciet de gebruikte aanname.
+        5. Zorg dat de vergelijking begrijpelijk, concreet en beeldend is.
+
+        Gebruik eenvoudige HTML-opmaak (zoals <b> voor vetgedrukt) en vermijd speciale tekens die innerHTML kunnen breken
+        Lever alleen de uiteindelijke tekst, zonder uitleg over je berekeningen.
+        We praten hier al tegen deze passigier, dus betrek het op diegene.
+        """
 
     completion = client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.95,  # meer vrijheid!
+        temperature=.999,
+        # stream=True,
         max_tokens=300
     )
-
     return completion.choices[0].message.content
+
+def create_departure_datetime(departure_date, departure_time):
+    """
+    Return datetime variable for departure date and time
+    """
+    if departure_date:
+        # Combine date and time into one string
+        departure_str = f"{departure_date} {departure_time}"
+        
+        # Parse into a datetime object
+        departure_datetime = datetime.strptime(departure_str, "%Y-%m-%d %H:%M")
+    else:
+        departure_datetime = None
+    return departure_datetime
+
+
+def match_with_db(fly_from_id, fly_to_id, departure_datetime, flight_number, airline_name):
+    """
+    Check if the input variables can be linked to an entry in our DB.
+    If query yields resutls, return the capacity of the FIRST row.
+    """
+
+    query = """
+    SELECT CAST(ROUND((seats_total - seats_available)*100.0/seats_total, 2) AS DECIMAL(5,2)) AS fill_percentage
+    FROM flights fl
+    LEFT JOIN airlines ail ON fl.airline_id = ail.airline_id
+    WHERE departure_airport_id = ?
+    AND arrival_airport_id = ?
+    """
+
+    # Dynamic conditions
+    params = [fly_from_id, fly_to_id]
+    if departure_datetime:
+        query += " AND CONVERT(DATE, scheduled_departure) = CONVERT(DATE, ?)"
+        params.append(departure_datetime)
+    if flight_number:
+        query += " AND flight_number = ?"
+        params.append(flight_number)
+    if airline_name:
+        query += " AND ail.name = ?"
+        params.append(airline_name)
+
+    try:
+        query_result = execute_query(query, tuple(params))
+        print(f"=========================={params}, {query}, {query_result}")
+        return float(query_result[0][0])
+    except:
+        return None
 
 
 def compute_emissions(data):
-    fly_from_id = data.get("fly_from")
-    fly_to_id = data.get("fly_to")
-    fly_from_coo = get_coordinates(int(fly_from_id))
-    fly_to_coo = get_coordinates(int(fly_to_id))
-    
-    distance = compute_distance_between_airports(fly_from_coo[0], fly_to_coo[0])
-    emissions = round(distance * 0.0365 * 3.203, 2)
-    perspective = perspective_emission_chatGPT(emissions)
+    """
+    Based on selected airports in the frontend, compute the total emissions per passenger.
 
-    return {"emissions": emissions, "perspective": perspective}
+    -- check if flight is historic or future
+    """
+    fly_from_id = int(data.get("fly_from"))
+    fly_to_id = int(data.get("fly_to"))
+    departure_date = data.get("departure_date")
+    departure_time = data.get("departure_time") or "12:00" ### default value
+    airline_name = data.get("airline_name") or ""
+    flight_number = data.get("flight_number") or ""
+    departure_datetime = create_departure_datetime(departure_date, departure_time)
+
+    departure_airport = execute_query("""select name from airports where airport_id = ?""", (fly_from_id,))[0][0]
+    arrival_airport = execute_query("""select name from airports where airport_id = ?""", (fly_to_id,))[0][0]
+
+    ### check with given info if we can find this flight in the database
+    flight_is_in_db = match_with_db(fly_from_id, fly_to_id, departure_datetime, flight_number, airline_name)
+    print(f"===========FLIGHT IS IN DB=============={flight_is_in_db}")
+    ### if this is not the case we are going to predict the capacity
+    if not flight_is_in_db:
+        PERCENTAGE_FILLED = predict_capacity_percentage(flight_number, 
+                                departure_datetime,
+                                airline_name,
+                                departure_airport,
+                                arrival_airport)
+        filled_perspective = "Deze vlucht staat niet in onze database, vandaar dat we een voorspelling doen van capaciteit obv geleverde gegevens gebruikmakende van automatische ML."
+    else:
+        PERCENTAGE_FILLED = flight_is_in_db
+        filled_perspective = "Deze gegevens leverde een match met een (of meerdere) vluchten in onze database. Bijbehorende data is gebruikt voor het berekenen van capaciteit."
+        
+    fly_from_coo = get_coordinates(fly_from_id)
+    fly_to_coo = get_coordinates(fly_to_id)
+    
+    FILLED_FACTOR = 100 / PERCENTAGE_FILLED
+    print(f"===========FLIGHT IS IN DB=============={PERCENTAGE_FILLED}")
+
+    distance = compute_distance_between_airports(fly_from_coo, fly_to_coo)
+    emissions = round(distance * PASSENGER_FACTOR * FILLED_FACTOR * EMISSION_FACTOR, 2)
+    perspective = perspective_emission_chatGPT(emissions)
+    return {"emissions": emissions, "perspective": perspective, "percentage_filled": PERCENTAGE_FILLED, "filled_perspective": filled_perspective}
 
 
 def start():
-    """This function returns the output on the /abel page"""
+    """
+    This function returns the output on the /abel page
+    """
     return "this is the start function"
