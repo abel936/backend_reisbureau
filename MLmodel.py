@@ -16,7 +16,6 @@ api_key = os.getenv("MLWORKSPACE_API_KEY")
 
 def predict_capacity_percentage(flight_number, 
                                 scheduled_departure,
-                                seats_total,
                                 airline_name,
                                 departure_airport,
                                 arrival_airport):
@@ -25,7 +24,6 @@ def predict_capacity_percentage(flight_number,
         "columns": [
         "flight_number",
         "scheduled_departure",
-        "seats_total",
         "airline_name",
         "departure_airport",
         "arrival_airport"
@@ -33,8 +31,7 @@ def predict_capacity_percentage(flight_number,
         "index": [0],
         "data": [
             [flight_number, 
-            scheduled_departure,
-            seats_total,
+            scheduled_departure.isoformat(),
             airline_name,
             departure_airport,
             arrival_airport]
@@ -44,7 +41,7 @@ def predict_capacity_percentage(flight_number,
 
     body = str.encode(json.dumps(data))
 
-    url = 'https://mlworkspace11-travel.eastus.inference.ml.azure.com/score'
+    url = 'https://ack2511travel-wxhok.westeurope.inference.ml.azure.com/score'
     # Replace this with the primary/secondary key, AMLToken, or Microsoft Entra ID token for the endpoint
     if not api_key:
         raise Exception("A key should be provided to invoke the endpoint")
@@ -62,19 +59,18 @@ def predict_capacity_percentage(flight_number,
         print(decoded)
         predicted_value = float(decoded.strip('[]'))
         print(round(predicted_value, 2), type(predicted_value))
-        return predicted_value/300
+        return round(predicted_value, 2)
+
     except urllib.error.HTTPError as error:
         print("The request failed with status code: " + str(error.code))
+
 
         # Print the headers - they include the requert ID and the timestamp, which are useful for debugging the failure
         print(error.info())
         print(error.read().decode("utf8", 'ignore'))
 
-
-
 # predict_capacity_percentage("", 
 #                             "",
-#                             300, # seats_total
 #                             "KLM Royal Dutch Airlines",
 #                             "Eindhoven Airport",
 #                             "Adolfo Suarez Madrid-Barajas")
