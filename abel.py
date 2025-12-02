@@ -114,12 +114,16 @@ def perspective_emission_chatGPT(emissions_in_kg):
     completion = client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.95,
+        temperature=.999,
+        # stream=True,
         max_tokens=300
     )
     return completion.choices[0].message.content
 
 def create_departure_datetime(departure_date, departure_time):
+    """
+    Return datetime variable for departure date and time
+    """
     if departure_date:
         # Combine date and time into one string
         departure_str = f"{departure_date} {departure_time}"
@@ -132,8 +136,13 @@ def create_departure_datetime(departure_date, departure_time):
 
 
 def match_with_db(fly_from_id, fly_to_id, departure_datetime, flight_number, airline_name):
+    """
+    Check if the input variables can be linked to an entry in our DB.
+    If query yields resutls, return the capacity of the FIRST row.
+    """
+
     query = """
-    SELECT seats_total, seats_available
+    SELECT CAST(ROUND((seats_total - seats_available)*100.0/seats_total, 2) AS DECIMAL(5,2)) AS fill_percentage
     FROM flights fl
     LEFT JOIN airlines ail ON fl.airline_id = ail.airline_id
     WHERE departure_airport_id = ?
@@ -155,7 +164,7 @@ def match_with_db(fly_from_id, fly_to_id, departure_datetime, flight_number, air
     try:
         query_result = execute_query(query, tuple(params))
         print(f"=========================={params}, {query}, {query_result}")
-        return query_result
+        return float(query_result[0][0])
     except:
         return None
 
@@ -176,7 +185,6 @@ def compute_emissions(data):
 
     departure_airport = execute_query("""select name from airports where airport_id = ?""", (fly_from_id,))[0][0]
     arrival_airport = execute_query("""select name from airports where airport_id = ?""", (fly_to_id,))[0][0]
-    # print(f"==============={departure_airport}")
 
     ### check with given info if we can find this flight in the database
     flight_is_in_db = match_with_db(fly_from_id, fly_to_id, departure_datetime, flight_number, airline_name)
@@ -185,22 +193,24 @@ def compute_emissions(data):
     if not flight_is_in_db:
         PERCENTAGE_FILLED = predict_capacity_percentage(flight_number, 
                                 departure_datetime,
-                                300, # seats_total
                                 airline_name,
                                 departure_airport,
                                 arrival_airport)
+        filled_perspective = "Deze vlucht staat niet in onze database, vandaar dat we een voorspelling doen van capaciteit obv geleverde gegevens gebruikmakende van automatische ML."
     else:
         PERCENTAGE_FILLED = flight_is_in_db
+        filled_perspective = "Deze gegevens leverde een match met een (of meerdere) vluchten in onze database. Bijbehorende data is gebruikt voor het berekenen van capaciteit."
         
     fly_from_coo = get_coordinates(fly_from_id)
     fly_to_coo = get_coordinates(fly_to_id)
     
-    FILLED_FACTOR = 1 / PERCENTAGE_FILLED
+    FILLED_FACTOR = 100 / PERCENTAGE_FILLED
+    print(f"===========FLIGHT IS IN DB=============={PERCENTAGE_FILLED}")
 
     distance = compute_distance_between_airports(fly_from_coo, fly_to_coo)
     emissions = round(distance * PASSENGER_FACTOR * FILLED_FACTOR * EMISSION_FACTOR, 2)
     perspective = perspective_emission_chatGPT(emissions)
-    return {"emissions": emissions, "perspective": perspective}
+    return {"emissions": emissions, "perspective": perspective, "percentage_filled": PERCENTAGE_FILLED, "filled_perspective": filled_perspective}
 
 
 def start():
