@@ -2,6 +2,7 @@ import os
 import json
 import hashlib
 import pyodbc
+import requests
 from flask import request, jsonify, session
 from connect_with_db import get_connection
 from dotenv import load_dotenv
@@ -86,8 +87,6 @@ def login():
 
         # Check password
         expected_hash = hash_password_with_salt(password, db_password_salt)
-        print("DEBUG: provided password hash:", expected_hash)
-        print("DEBUG: stored password hash:", db_password_hash)
 
         # check if hashes match, if not, return error (Make sure the error is same as username incorrect, as to not give hints)
         if db_password_hash != expected_hash:
@@ -453,9 +452,6 @@ def ai_recommendation():
             "```\n\n"
             "Using this information, recommend 1–3 destination ideas and explain your reasoning."
         )
-        
-        print("DEBUG: System prompt:", system_prompt)
-        print("DEBUG: Sending to OpenAI:", user_message)
 
         completion = client.chat.completions.create(
             model="gpt-4o-mini",  # or "gpt-4o" etc.
@@ -491,3 +487,44 @@ def ai_recommendation():
                 conn.close()
             except pyodbc.ProgrammingError:
                 pass
+
+def speech_token():
+    """
+    Handles requests for Azure Speech tokens. (JV)
+    GET /julian/speech-token
+
+    Returns a short-lived Azure Speech token + region so the frontend
+    can call the Speech SDK without exposing the subscription key.
+    """
+    speech_key = os.getenv("SPEECH_KEY")
+    speech_region = os.getenv("SPEECH_REGION")
+
+    if not speech_key or not speech_region:
+        return jsonify({"error": "Speech service is not configured"}), 500
+
+    try:
+        # Azure issueToken endpoint
+        url = f"https://{speech_region}.api.cognitive.microsoft.com/sts/v1.0/issueToken"
+        headers = {
+            "Ocp-Apim-Subscription-Key": speech_key,
+            "Content-Length": "0",
+        }
+
+        # POST with empty body
+        resp = requests.post(url, headers=headers, timeout=10)
+
+        if resp.status_code != 200:
+            return jsonify(
+                {
+                    "error": "Failed to obtain speech token",
+                    "status": resp.status_code,
+                    "details": resp.text,
+                }
+            ), 500
+
+        token = resp.text
+
+        return jsonify({"token": token, "region": speech_region})
+
+    except Exception as e:
+        return jsonify({"error": f"Could not obtain speech token: {e}"}), 500
