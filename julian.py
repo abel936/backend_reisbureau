@@ -1,10 +1,18 @@
+import os
+import json
 import hashlib
+import pyodbc
 from flask import request, jsonify, session
 from connect_with_db import get_connection
+from dotenv import load_dotenv
+from openai import OpenAI
+
+load_dotenv()
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
 def rows_to_dicts(cursor, rows):
-    """Convert pyodbc rows to list[dict] using cursor.description."""
+    """Convert pyodbc rows to list[dict] using cursor.description. (JV)"""
     if not rows:
         return []
     columns = [col[0] for col in cursor.description]
@@ -12,6 +20,7 @@ def rows_to_dicts(cursor, rows):
 
 def hash_password_with_salt(password: str, salt: bytes) -> bytes:
     """
+    Hashes the password with the given salt using SHA-256. (JV)
     Must match SQL:
     HASHBYTES('SHA2_256', salt + CONVERT(VARBINARY(4000), plain_password NVARCHAR))
     """
@@ -21,6 +30,7 @@ def hash_password_with_salt(password: str, salt: bytes) -> bytes:
 
 def hash_password(password: str) -> bytes:
     """
+    Hash a password using SHA-256 without salt. (Currently unused.) (JV)
     Example password hashing: SHA-256.
     Assumes password_hash in the DB is stored as VARBINARY with the raw bytes.
     You can update the Users table values later to match this scheme.
@@ -30,6 +40,7 @@ def hash_password(password: str) -> bytes:
 
 def login():
     """
+    Handles user login requests. (JV)
     POST /julian/login
     Body: { "username": "...", "password": "..." }
 
@@ -37,12 +48,9 @@ def login():
       - stores user_id in session["user_id"]
       - returns basic user info
     """
-    print("DEBUG: login request received")
     data = request.get_json(silent=True) or {}
     username = data.get("username", "").strip()
     password = data.get("password", "")
-    print("DEBUG: username from request:", username)
-    print("DEBUG: password from request:", password)
 
     if not username or not password:
         return jsonify({"success": False, "error": "Username and password required"}), 400
@@ -54,7 +62,7 @@ def login():
         conn = get_connection()
         cursor = conn.cursor()
 
-        # Look up user by username
+        # Look up user by username to fetch stored password hash and salt
         cursor.execute(
             """
             SELECT
@@ -69,8 +77,8 @@ def login():
             (username,),
         )
         row = cursor.fetchone()
-        print("DEBUG: user row from DB:", row)   # or row.username, row.password_hash
 
+        # Check if user exists, throw error if not
         if row is None:
             return jsonify({"success": False, "error": "Invalid username or password"}), 401
 
@@ -81,7 +89,7 @@ def login():
         print("DEBUG: provided password hash:", expected_hash)
         print("DEBUG: stored password hash:", db_password_hash)
 
-        # db_password_hash from pyodbc is already bytes for VARBINARY
+        # check if hashes match, if not, return error (Make sure the error is same as username incorrect, as to not give hints)
         if db_password_hash != expected_hash:
             return jsonify({"success": False, "error": "Invalid username or password"}), 401
 
@@ -112,6 +120,7 @@ def login():
 
 def logout():
     """
+    Handles user logout requests. Removes user info from session. (JV)
     POST /julian/logout
 
     Clears the logged-in user from the session.
@@ -123,7 +132,8 @@ def logout():
 
 def start():
     """
-    Entry point for GET /julian
+    Entry point for GET /julian (JV)
+    Returns the logged-in user's info, trips, and reviews for the dashboard.
 
     - Requires a logged-in user (session["user_id"]).
     - Returns:
@@ -132,6 +142,7 @@ def start():
         - that user's reviews
     """
     current_user_id = session.get("user_id")
+
 
     if current_user_id is None:
         # Not logged in
@@ -255,3 +266,228 @@ def start():
             cursor.close()
         if conn is not None:
             conn.close()
+
+def ai_recommendation():
+    """
+    Handles AI travel recommendation requests. (JV)
+    POST /julian/ai_recommendation
+    Body JSON:
+    {
+      "include_trips": true/false,
+      "include_reviews": true/false,
+      "extra_notes": "optional free text from user",
+      "distance_preference": "far" | "new" | "been_before" | null
+    }
+
+    Returns:
+    {
+      "success": true/false,
+      "recommendation": "text from model",
+      "error": "...optional..."
+    }
+    """
+
+    current_user_id = session.get("user_id")
+    if current_user_id is None:
+        return jsonify({"success": False, "error": "Not authenticated"}), 401
+
+    data = request.get_json(silent=True) or {}
+    include_trips = bool(data.get("include_trips", True))
+    include_reviews = bool(data.get("include_reviews", True))
+    extra_notes = (data.get("extra_notes") or "").strip()
+    distance_pref = data.get("distance_preference")
+
+    # Normalize / validate distance preference, must be one of the valid options or None
+    valid_prefs = {"far", "new", "been_before"}
+    if distance_pref not in valid_prefs:
+        distance_pref = None
+
+    conn = None
+    cursor = None
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        # 1) Basic user info
+        cursor.execute(
+            """
+            SELECT
+                users.user_id,
+                users.username,
+                users.full_name,
+                users.home_airport_id,
+                airports.name as home_airport_name
+            FROM Users
+            LEFT JOIN Airports
+                ON users.home_airport_id = airports.airport_id
+            WHERE user_id = ?
+            """,
+            (current_user_id,),
+        )
+        user_row = cursor.fetchone()
+        user_info = None
+        if user_row:
+            user_info = {
+                "user_id": user_row[0],
+                "username": user_row[1],
+                "full_name": user_row[2],
+                "home_airport_id": user_row[3],
+                "home_airport_name": user_row[4],
+            }
+
+        trips = []
+        reviews = []
+
+        # 2) Optionally load trips
+        if include_trips:
+            trips_sql = """
+                SELECT
+                    t.trip_id,
+                    t.user_id,
+                    t.departure_date,
+                    t.return_date,
+                    t.purpose,
+                    t.total_price,
+                    t.currency_code,
+                    dep_air.iata_code AS departure_airport_code,
+                    dep_city.name     AS departure_city_name,
+                    arr_air.iata_code AS arrival_airport_code,
+                    arr_city.name     AS arrival_city_name,
+                    dest_city.name    AS main_destination_city_name,
+                    al.name           AS primary_airline_name
+                FROM UserTrips t
+                JOIN Airports dep_air
+                    ON t.departure_airport_id = dep_air.airport_id
+                JOIN Airports arr_air
+                    ON t.arrival_airport_id = arr_air.airport_id
+                LEFT JOIN Cities dep_city
+                    ON dep_air.city_id = dep_city.city_id
+                LEFT JOIN Cities arr_city
+                    ON arr_air.city_id = arr_city.city_id
+                LEFT JOIN Cities dest_city
+                    ON t.main_destination_city_id = dest_city.city_id
+                LEFT JOIN Airlines al
+                    ON t.primary_airline_id = al.airline_id
+                WHERE t.user_id = ?
+                ORDER BY t.departure_date DESC, t.trip_id DESC;
+            """
+            cursor.execute(trips_sql, (current_user_id,))
+            trip_rows = cursor.fetchall()
+            trips = rows_to_dicts(cursor, trip_rows)
+
+        # 3) Optionally load reviews
+        if include_reviews:
+            reviews_sql = """
+                SELECT
+                    r.review_id,
+                    r.trip_id,
+                    r.rating,
+                    r.review_title,
+                    r.review_text,
+                    r.travel_date,
+                    al.name      AS airline_name,
+                    ap.iata_code AS airport_code,
+                    ci.name      AS city_name
+                FROM Reviews r
+                LEFT JOIN Airlines al
+                    ON r.airline_id = al.airline_id
+                LEFT JOIN Airports ap
+                    ON r.airport_id = ap.airport_id
+                LEFT JOIN Cities ci
+                    ON r.city_id = ci.city_id
+                WHERE r.user_id = ?
+                ORDER BY r.travel_date DESC, r.review_id DESC;
+            """
+            cursor.execute(reviews_sql, (current_user_id,))
+            review_rows = cursor.fetchall()
+            reviews = rows_to_dicts(cursor, review_rows)
+
+    except Exception as e:
+        if cursor is not None:
+            cursor.close()
+        if conn is not None:
+            conn.close()
+        return jsonify({"success": False, "error": f"DB error: {e}"}), 500
+
+    # 4) Build context object for the AI
+    context = {
+        "user": user_info,
+        "trips": trips if include_trips else [],
+        "reviews": reviews if include_reviews else [],
+        "preferences": {
+            "include_trips": include_trips,
+            "include_reviews": include_reviews,
+            "distance_preference": distance_pref,
+            "extra_notes": extra_notes,
+        },
+    }
+
+    # 5) Call OpenAI / ChatGPT
+    try:
+        # Convert context to JSON string (datetimes -> strings)
+        context_json = json.dumps(context, default=str, indent=2)
+
+        system_prompt = (
+            "You are an AI travel recommendation engine for a travel website. "
+            "You receive a JSON object describing a single user's past trips, reviews, "
+            "and some preferences. Your job is to generate a friendly, concrete travel "
+            "recommendation for this user. You may suggest 1–3 specific destinations.\n\n"
+            "Constraints:\n"
+            "- Start with a short 1–2 sentence summary.\n"
+            "- Then give bullet points: why this fits their habits, what they'll like, "
+            "and what could be new for them.\n"
+            "- Respect the distance_preference if provided: "
+            "'far' = long-haul, 'new' = different than previous destinations, "
+            "'been_before' = places similar to or including places they've visited.\n"
+            "Try to listen to any extra notes left by the user to the best of your ability.\n"
+            "However, if the notes are vague, contradictory, or clearly impossible, \n"
+            "use your best judgment to provide a reasonable recommendation.\n"
+            "- Use a helpful, enthusiastic but not cheesy tone.\n"
+        )
+
+        user_message = (
+            "Here is the user's data in JSON format:\n"
+            "```json\n"
+            f"{context_json}\n"
+            "```\n\n"
+            "Using this information, recommend 1–3 destination ideas and explain your reasoning."
+        )
+        
+        print("DEBUG: System prompt:", system_prompt)
+        print("DEBUG: Sending to OpenAI:", user_message)
+
+        completion = client.chat.completions.create(
+            model="gpt-4o-mini",  # or "gpt-4o" etc.
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": user_message},
+            ],
+            temperature=0.8,
+            max_tokens=600,
+        )
+
+        # Extract recommendation text
+        recommendation_text = completion.choices[0].message.content
+
+
+        return jsonify(
+            {
+                "success": True,
+                "recommendation": recommendation_text,
+            }
+        )
+
+    except Exception as e:
+        return jsonify({"success": False, "error": f"OpenAI error: {e}"}), 500
+    finally:
+        if cursor is not None:
+            try:
+                cursor.close()
+            except pyodbc.ProgrammingError:
+                pass
+        if conn is not None:
+            try:
+                conn.close()
+            except pyodbc.ProgrammingError:
+                pass

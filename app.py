@@ -30,6 +30,16 @@ def arrival_at():
     result = abel.get_all_arrival_airports_departing_from(request.get_json())
     return result
 
+@app.route("/abel/airlines", methods=["GET", "POST"])
+def airlines():
+    result = abel.get_all_airline_names()
+    return result
+
+@app.route("/abel/computeEmissions", methods=["GET", "POST"])
+def compute_emissions():
+    result = abel.compute_emissions(request.get_json())
+    return result
+
 @app.route("/bente", methods=["GET", "POST"])
 def bente_route():
     result = bente.start()
@@ -38,6 +48,11 @@ def bente_route():
 @app.route("/donny", methods=["GET", "POST"])
 def donny_route():
     result = donny.start()
+    return result
+
+@app.route("/donny/destinations", methods=["GET", "POST"])
+def donny_destinations_route():
+    result = donny.get_destinations_from_departure()
     return result
 
 @app.route("/julian", methods=["GET"])
@@ -51,6 +66,10 @@ def julian_login():
 @app.route("/julian/logout", methods=["POST"])
 def julian_logout():
     return julian.logout()
+
+@app.route("/julian/ai_recommendation", methods=["POST"])
+def julian_ai_recommendation_route():
+    return julian.ai_recommendation()
 
 @app.route("/esmee", methods=["GET", "POST"])
 def esmee_route():
