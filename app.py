@@ -55,6 +55,11 @@ def donny_destinations_route():
     result = donny.get_destinations_from_departure()
     return result
 
+@app.route("/donny/checkin", methods=["GET", "POST"])
+def donny_checkin_route():
+    result = donny.checkin()
+    return result
+
 @app.route("/julian", methods=["GET"])
 def julian_route():
     return julian.start()
