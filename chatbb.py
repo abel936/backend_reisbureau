@@ -8,7 +8,7 @@ from azure.storage.blob import (
 )
 
 
-def main():
+def Afb_generen_met_url():
     load_dotenv()
 
     apikey = os.getenv("OPENAI_API_KEY")
@@ -56,7 +56,7 @@ def main():
     blob_client = container_client.get_blob_client(blob_name)
     blob_client.upload_blob(img_bytes, overwrite=True, content_settings=ContentSettings(content_type="image/png"))
 
-    # SAS-token (24 uur geldig)
+    # (BB) SAS-token (24 uur geldig, tijdelijke beveiligde toegangssleutel)
     sas = generate_blob_sas(
         account_name=svc.account_name,
         container_name=container_name,
@@ -68,8 +68,9 @@ def main():
 
     
     image_url = f"https://{svc.account_name}.blob.core.windows.net/{container_name}/{blob_name}?{sas}"
-    print("Generated image URL:", image_url)
-    print(f"Afbeelding opgeslagen: {unique_name}")
+
+    return image_url, unique_name
+    
 
 if __name__ == "__main__":
-    main()
+    Afb_generen_met_url()
