@@ -11,6 +11,16 @@ import os
 
 
 # Load environment variables and initialize client globally
+
+
+
+#
+#
+# issue met het predicten van capaciteit ????
+#
+#
+
+
 load_dotenv()
 api_key = os.getenv("MLWORKSPACE_API_KEY")
 
@@ -19,6 +29,7 @@ def predict_capacity_percentage(flight_number,
                                 airline_name,
                                 departure_airport,
                                 arrival_airport):
+    
     data = {
     "input_data": {
         "columns": [
@@ -31,7 +42,7 @@ def predict_capacity_percentage(flight_number,
         "index": [0],
         "data": [
             [flight_number, 
-            scheduled_departure.isoformat(),
+            scheduled_departure,
             airline_name,
             departure_airport,
             arrival_airport]
