@@ -1,5 +1,5 @@
-from flask import Flask, request, jsonify, render_template
-from flask_cors import CORS
+from flask import Flask, request, jsonify, render_template # type: ignore
+from flask_cors import CORS # type: ignore
 import abel, bente, donny, julian, esmee
 import os
 
@@ -74,6 +74,10 @@ def julian_ai_recommendation_route():
 @app.route("/julian/speech-token", methods=["GET"])
 def julian_speech_token():
     return julian.speech_token()
+
+@app.route("/julian/session", methods=["GET"])
+def julian_session_route():
+    return julian.session_status()
 
 @app.route("/esmee", methods=["GET", "POST"])
 def esmee_route():
