@@ -169,8 +169,9 @@ def compute_emissions(data):
 
     # Streaming response
     
+
     def generate():
-    # Emissie en capaciteit netjes in HTML
+        # ✅ Real HTML (no &lt; / &gt; escaping)
         yield f"""
         <div style="font-family: Arial; line-height: 1.6;">
             <h2 style="color:#2c3e50;">Resultaat van uw berekening</h2>
@@ -178,12 +179,12 @@ def compute_emissions(data):
             <p><strong>Capaciteit:</strong> {PERCENTAGE_FILLED}%</p>
             <p style="color:#7f8c8d; font-size:14px;">
                 {filled_perspective}<br>
-                <em>Let op:</em> Deze waarde is exclusief extra klimaatimpact zoals <abbr title="Relative Forcing Index">RFI</abbr>.
+                <em>Let op:</em> Deze waarde is exclusief extra klimaatimpact zoals
+                <abbr title="Relative Forcing Index">RFI</abbr>.
             </p>
             <hr style="margin:15px 0;">
         """
 
-        # ChatGPT-perspectief streamen
         prompt = f"""
         Je bent een chatbot die mensen helpt de milieu-impact van vliegen begrijpelijk en invoelbaar te maken voor een gemiddelde Nederlandse volwassene.
 
@@ -198,21 +199,26 @@ def compute_emissions(data):
         5. Zorg dat de vergelijking begrijpelijk, concreet en beeldend is.
 
         Lever alleen de uiteindelijke tekst, zonder uitleg over je berekeningen.
-        Simpele styling nodig die mogelijk is in een innerHTML, en gebruik emoijis.
+        Genereer 1 introducerend zinnetje. Daarna toon het aantal bomen nodig in ROOD en GROOT.
+        Gebruik wat leuke emojis aub. Output gewone plain text
         """
 
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "text"},
             stream=True
         )
 
         for chunk in response:
             if chunk.choices and chunk.choices[0].delta.content:
+                # ✅ Stream raw HTML chunks directly
                 yield chunk.choices[0].delta.content
 
-        # Sluit div
+        # ✅ Close the wrapper div with real HTML
         yield "</div>"
+
+    # ✅ Serve as HTML so the browser renders it
 
     return Response(generate(), content_type="text/plain")
 
