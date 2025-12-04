@@ -1,12 +1,12 @@
 import os
 import json
 import hashlib
-import pyodbc
-import requests
-from flask import request, jsonify, session
+import pyodbc # type: ignore
+import requests # type: ignore
+from flask import request, jsonify, session # type: ignore
 from connect_with_db import get_connection
-from dotenv import load_dotenv
-from openai import OpenAI
+from dotenv import load_dotenv # type: ignore
+from openai import OpenAI # type: ignore
 
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -38,6 +38,62 @@ def hash_password(password: str) -> bytes:
     """
     return hashlib.sha256(password.encode("utf-8")).digest()
 
+def _load_basic_user_info(user_id: int):
+    """Return basic user info dict for given user_id, or None if not found. (JV)"""
+    conn = None
+    cursor = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT
+                user_id,
+                username,
+                full_name,
+                home_airport_id
+            FROM Users
+            WHERE user_id = ?
+            """,
+            (user_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "user_id": row[0],
+            "username": row[1],
+            "full_name": row[2],
+            "home_airport_id": row[3],
+        }
+    finally:
+        if cursor is not None:
+            cursor.close()
+        if conn is not None:
+            conn.close()
+
+def session_status():
+    """
+    Handles session status requests. (JV)
+    GET /julian/session
+
+    Returns whether the user is logged in, plus basic user info if so.
+    """
+    current_user_id = session.get("user_id")
+
+    if current_user_id is None:
+        # No session cookie or not logged in
+        return jsonify({"logged_in": False, "user": None}), 200
+
+    # Try to load the user from DB (handles deleted users etc.)
+    user_info = _load_basic_user_info(current_user_id)
+    if user_info is None:
+        # Session has stale user ID → treat as logged out
+        session.pop("user_id", None)
+        session.pop("username", None)
+        return jsonify({"logged_in": False, "user": None}), 200
+
+    return jsonify({"logged_in": True, "user": user_info}), 200
 
 def login():
     """
