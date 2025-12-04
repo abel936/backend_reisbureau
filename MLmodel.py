@@ -42,7 +42,7 @@ def predict_capacity_percentage(flight_number,
         "index": [0],
         "data": [
             [flight_number, 
-            scheduled_departure,
+            scheduled_departure.isoformat(),
             airline_name,
             departure_airport,
             arrival_airport]
@@ -52,7 +52,7 @@ def predict_capacity_percentage(flight_number,
 
     body = str.encode(json.dumps(data))
 
-    url = 'https://ack2511travel-wxhok.westeurope.inference.ml.azure.com/score'
+    url = 'https://ack2511travel-wrmmx.westeurope.inference.ml.azure.com/score'
     # Replace this with the primary/secondary key, AMLToken, or Microsoft Entra ID token for the endpoint
     if not api_key:
         raise Exception("A key should be provided to invoke the endpoint")
