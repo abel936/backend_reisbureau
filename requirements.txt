@@ -5,3 +5,4 @@ flask
 flask-cors
 dotenv
 openai
+azure-storage-blob
