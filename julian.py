@@ -2,6 +2,7 @@ import os
 import json
 import hashlib
 import pyodbc
+import requests
 from flask import request, jsonify, session
 from connect_with_db import get_connection
 from dotenv import load_dotenv
@@ -12,7 +13,7 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
 def rows_to_dicts(cursor, rows):
-    """Convert pyodbc rows to list[dict] using cursor.description."""
+    """Convert pyodbc rows to list[dict] using cursor.description. (JV)"""
     if not rows:
         return []
     columns = [col[0] for col in cursor.description]
@@ -20,6 +21,7 @@ def rows_to_dicts(cursor, rows):
 
 def hash_password_with_salt(password: str, salt: bytes) -> bytes:
     """
+    Hashes the password with the given salt using SHA-256. (JV)
     Must match SQL:
     HASHBYTES('SHA2_256', salt + CONVERT(VARBINARY(4000), plain_password NVARCHAR))
     """
@@ -29,6 +31,7 @@ def hash_password_with_salt(password: str, salt: bytes) -> bytes:
 
 def hash_password(password: str) -> bytes:
     """
+    Hash a password using SHA-256 without salt. (Currently unused.) (JV)
     Example password hashing: SHA-256.
     Assumes password_hash in the DB is stored as VARBINARY with the raw bytes.
     You can update the Users table values later to match this scheme.
@@ -38,6 +41,7 @@ def hash_password(password: str) -> bytes:
 
 def login():
     """
+    Handles user login requests. (JV)
     POST /julian/login
     Body: { "username": "...", "password": "..." }
 
@@ -45,12 +49,9 @@ def login():
       - stores user_id in session["user_id"]
       - returns basic user info
     """
-    print("DEBUG: login request received")
     data = request.get_json(silent=True) or {}
     username = data.get("username", "").strip()
     password = data.get("password", "")
-    print("DEBUG: username from request:", username)
-    print("DEBUG: password from request:", password)
 
     if not username or not password:
         return jsonify({"success": False, "error": "Username and password required"}), 400
@@ -62,7 +63,7 @@ def login():
         conn = get_connection()
         cursor = conn.cursor()
 
-        # Look up user by username
+        # Look up user by username to fetch stored password hash and salt
         cursor.execute(
             """
             SELECT
@@ -77,8 +78,8 @@ def login():
             (username,),
         )
         row = cursor.fetchone()
-        print("DEBUG: user row from DB:", row)   # or row.username, row.password_hash
 
+        # Check if user exists, throw error if not
         if row is None:
             return jsonify({"success": False, "error": "Invalid username or password"}), 401
 
@@ -86,10 +87,8 @@ def login():
 
         # Check password
         expected_hash = hash_password_with_salt(password, db_password_salt)
-        print("DEBUG: provided password hash:", expected_hash)
-        print("DEBUG: stored password hash:", db_password_hash)
 
-        # db_password_hash from pyodbc is already bytes for VARBINARY
+        # check if hashes match, if not, return error (Make sure the error is same as username incorrect, as to not give hints)
         if db_password_hash != expected_hash:
             return jsonify({"success": False, "error": "Invalid username or password"}), 401
 
@@ -120,6 +119,7 @@ def login():
 
 def logout():
     """
+    Handles user logout requests. Removes user info from session. (JV)
     POST /julian/logout
 
     Clears the logged-in user from the session.
@@ -131,7 +131,8 @@ def logout():
 
 def start():
     """
-    Entry point for GET /julian
+    Entry point for GET /julian (JV)
+    Returns the logged-in user's info, trips, and reviews for the dashboard.
 
     - Requires a logged-in user (session["user_id"]).
     - Returns:
@@ -140,6 +141,7 @@ def start():
         - that user's reviews
     """
     current_user_id = session.get("user_id")
+
 
     if current_user_id is None:
         # Not logged in
@@ -266,6 +268,7 @@ def start():
 
 def ai_recommendation():
     """
+    Handles AI travel recommendation requests. (JV)
     POST /julian/ai_recommendation
     Body JSON:
     {
@@ -293,7 +296,7 @@ def ai_recommendation():
     extra_notes = (data.get("extra_notes") or "").strip()
     distance_pref = data.get("distance_preference")
 
-    # Normalize / validate distance preference
+    # Normalize / validate distance preference, must be one of the valid options or None
     valid_prefs = {"far", "new", "been_before"}
     if distance_pref not in valid_prefs:
         distance_pref = None
@@ -449,9 +452,6 @@ def ai_recommendation():
             "```\n\n"
             "Using this information, recommend 1–3 destination ideas and explain your reasoning."
         )
-        
-        print("DEBUG: System prompt:", system_prompt)
-        print("DEBUG: Sending to OpenAI:", user_message)
 
         completion = client.chat.completions.create(
             model="gpt-4o-mini",  # or "gpt-4o" etc.
@@ -463,7 +463,7 @@ def ai_recommendation():
             max_tokens=600,
         )
 
-        # New SDK: use .content, not ["content"]
+        # Extract recommendation text
         recommendation_text = completion.choices[0].message.content
 
 
@@ -487,3 +487,44 @@ def ai_recommendation():
                 conn.close()
             except pyodbc.ProgrammingError:
                 pass
+
+def speech_token():
+    """
+    Handles requests for Azure Speech tokens. (JV)
+    GET /julian/speech-token
+
+    Returns a short-lived Azure Speech token + region so the frontend
+    can call the Speech SDK without exposing the subscription key.
+    """
+    speech_key = os.getenv("SPEECH_KEY")
+    speech_region = os.getenv("SPEECH_REGION")
+
+    if not speech_key or not speech_region:
+        return jsonify({"error": "Speech service is not configured"}), 500
+
+    try:
+        # Azure issueToken endpoint
+        url = f"https://{speech_region}.api.cognitive.microsoft.com/sts/v1.0/issueToken"
+        headers = {
+            "Ocp-Apim-Subscription-Key": speech_key,
+            "Content-Length": "0",
+        }
+
+        # POST with empty body
+        resp = requests.post(url, headers=headers, timeout=10)
+
+        if resp.status_code != 200:
+            return jsonify(
+                {
+                    "error": "Failed to obtain speech token",
+                    "status": resp.status_code,
+                    "details": resp.text,
+                }
+            ), 500
+
+        token = resp.text
+
+        return jsonify({"token": token, "region": speech_region})
+
+    except Exception as e:
+        return jsonify({"error": f"Could not obtain speech token: {e}"}), 500

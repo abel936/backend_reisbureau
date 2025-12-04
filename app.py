@@ -71,6 +71,10 @@ def julian_logout():
 def julian_ai_recommendation_route():
     return julian.ai_recommendation()
 
+@app.route("/julian/speech-token", methods=["GET"])
+def julian_speech_token():
+    return julian.speech_token()
+
 @app.route("/esmee", methods=["GET", "POST"])
 def esmee_route():
     result = esmee.start()
