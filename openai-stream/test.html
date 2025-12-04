@@ -1,0 +1,35 @@
+
+<!DOCTYPE html>
+<html lang="en">
+
+<body>
+    <h1>Ask AI</h1>
+    <textarea id="question" rows="4" cols="50" placeholder="Type your question here..."></textarea><br>
+    <button onclick="askAI()">Ask</button>
+    <div id="response"></div>
+
+    <script>
+        async function askAI() {
+            const question = document.getElementById('question').value;
+            const responseDiv = document.getElementById('response');
+            responseDiv.textContent = ""; // Clear previous response
+
+            const res = await fetch('http://127.0.0.1:5000/ask', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question })
+            });
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                const chunk = decoder.decode(value);
+                responseDiv.textContent += chunk; // Append streamed text
+            }
+        }
+    </script>
+</body>
+</html>

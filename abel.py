@@ -1,5 +1,5 @@
 from connect_with_db import get_connection
-from flask import abort
+from flask import Flask, request, Response, abort
 from math import radians, sin, cos, sqrt, atan2
 from openai import OpenAI
 import os
@@ -89,37 +89,6 @@ def compute_distance_between_airports(coord1, coord2):
     return R * 2 * atan2(sqrt(a), sqrt(1 - a))
 
 
-def perspective_emission_chatGPT(emissions_in_kg):
-    """
-    This chatGPT API procudes a narrative that places the total emissions into perspective.
-    """
-    prompt = f"""
-        Je bent een chatbot die mensen helpt de milieu-impact van vliegen begrijpelijk en invoelbaar te maken voor een gemiddelde Nederlandse volwassene.
-
-        Je krijgt het totale aantal emissies in kilogram CO₂ voor één passagier: {emissions_in_kg} kg.
-
-        Maak een kort, toegankelijk en beeldend stukje tekst (2 (korte) zinnen) met deze instructies:
-
-        1. Schat hoeveel bomen nodig zijn om deze CO₂ in EEN! (1) jaar te absorberen. Maak er een rond getal van.
-        2. Gebruik hiervoor de aanname dat één volwassen boom gemiddeld 20 kg CO₂ per jaar opneemt.
-        3. Presenteer het aantal benodigde bomen GROOT en ROOD.
-        4. Noem expliciet de gebruikte aanname.
-        5. Zorg dat de vergelijking begrijpelijk, concreet en beeldend is.
-
-        Gebruik eenvoudige HTML-opmaak (zoals <b> voor vetgedrukt) en vermijd speciale tekens die innerHTML kunnen breken
-        Lever alleen de uiteindelijke tekst, zonder uitleg over je berekeningen.
-        We praten hier al tegen deze passigier, dus betrek het op diegene.
-        """
-
-    completion = client.chat.completions.create(
-        model="gpt-3.5-turbo",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=.999,
-        # stream=True,
-        max_tokens=300
-    )
-    return completion.choices[0].message.content
-
 def create_departure_datetime(departure_date, departure_time):
     """
     Return datetime variable for departure date and time
@@ -169,16 +138,12 @@ def match_with_db(fly_from_id, fly_to_id, departure_datetime, flight_number, air
         return None
 
 
-def compute_emissions(data):
-    """
-    Based on selected airports in the frontend, compute the total emissions per passenger.
 
-    -- check if flight is historic or future
-    """
+def compute_emissions(data):
     fly_from_id = int(data.get("fly_from"))
     fly_to_id = int(data.get("fly_to"))
-    departure_date = data.get("departure_date")
-    departure_time = data.get("departure_time") or "12:00" ### default value
+    departure_date = data.get("departure_date") or ""
+    departure_time = data.get("departure_time") or "12:00"
     airline_name = data.get("airline_name") or ""
     flight_number = data.get("flight_number") or ""
     departure_datetime = create_departure_datetime(departure_date, departure_time)
@@ -186,31 +151,70 @@ def compute_emissions(data):
     departure_airport = execute_query("""select name from airports where airport_id = ?""", (fly_from_id,))[0][0]
     arrival_airport = execute_query("""select name from airports where airport_id = ?""", (fly_to_id,))[0][0]
 
-    ### check with given info if we can find this flight in the database
     flight_is_in_db = match_with_db(fly_from_id, fly_to_id, departure_datetime, flight_number, airline_name)
-    print(f"===========FLIGHT IS IN DB=============={flight_is_in_db}")
-    ### if this is not the case we are going to predict the capacity
+
     if not flight_is_in_db:
-        PERCENTAGE_FILLED = predict_capacity_percentage(flight_number, 
-                                departure_datetime,
-                                airline_name,
-                                departure_airport,
-                                arrival_airport)
+        PERCENTAGE_FILLED = predict_capacity_percentage(flight_number, departure_datetime, airline_name, departure_airport, arrival_airport)
         filled_perspective = "Deze vlucht staat niet in onze database, vandaar dat we een voorspelling doen van capaciteit obv geleverde gegevens gebruikmakende van automatische ML."
     else:
         PERCENTAGE_FILLED = flight_is_in_db
         filled_perspective = "Deze gegevens leverde een match met een (of meerdere) vluchten in onze database. Bijbehorende data is gebruikt voor het berekenen van capaciteit."
-        
+
     fly_from_coo = get_coordinates(fly_from_id)
     fly_to_coo = get_coordinates(fly_to_id)
-    
-    FILLED_FACTOR = 100 / PERCENTAGE_FILLED
-    print(f"===========FLIGHT IS IN DB=============={PERCENTAGE_FILLED}")
 
+    FILLED_FACTOR = 100 / PERCENTAGE_FILLED
     distance = compute_distance_between_airports(fly_from_coo, fly_to_coo)
     emissions = round(distance * PASSENGER_FACTOR * FILLED_FACTOR * EMISSION_FACTOR, 2)
-    perspective = perspective_emission_chatGPT(emissions)
-    return {"emissions": emissions, "perspective": perspective, "percentage_filled": PERCENTAGE_FILLED, "filled_perspective": filled_perspective}
+
+    # Streaming response
+    
+    def generate():
+    # Emissie en capaciteit netjes in HTML
+        yield f"""
+        <div style="font-family: Arial; line-height: 1.6;">
+            <h2 style="color:#2c3e50;">Resultaat van uw berekening</h2>
+            <p><strong>Emissie:</strong> <span style="color:#3fa9f5; font-size:18px;">{emissions} kg CO₂</span></p>
+            <p><strong>Capaciteit:</strong> {PERCENTAGE_FILLED}%</p>
+            <p style="color:#7f8c8d; font-size:14px;">
+                {filled_perspective}<br>
+                <em>Let op:</em> Deze waarde is exclusief extra klimaatimpact zoals <abbr title="Relative Forcing Index">RFI</abbr>.
+            </p>
+            <hr style="margin:15px 0;">
+        """
+
+        # ChatGPT-perspectief streamen
+        prompt = f"""
+        Je bent een chatbot die mensen helpt de milieu-impact van vliegen begrijpelijk en invoelbaar te maken voor een gemiddelde Nederlandse volwassene.
+
+        Je krijgt het totale aantal emissies in kilogram CO₂ voor één passagier: {emissions} kg.
+
+        Maak een kort, toegankelijk en beeldend stukje tekst (2 (korte) zinnen) met deze instructies:
+
+        1. Schat hoeveel bomen nodig zijn om deze CO₂ in EEN! (1) jaar te absorberen. Maak er een rond getal van.
+        2. Gebruik hiervoor de aanname dat één volwassen boom gemiddeld 20 kg CO₂ per jaar opneemt.
+        3. Presenteer het aantal benodigde bomen GROOT en ROOD.
+        4. Noem expliciet de gebruikte aanname.
+        5. Zorg dat de vergelijking begrijpelijk, concreet en beeldend is.
+
+        Lever alleen de uiteindelijke tekst, zonder uitleg over je berekeningen.
+        Simpele styling nodig die mogelijk is in een innerHTML, en gebruik emoijis.
+        """
+
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            stream=True
+        )
+
+        for chunk in response:
+            if chunk.choices and chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content
+
+        # Sluit div
+        yield "</div>"
+
+    return Response(generate(), content_type="text/plain")
 
 
 def start():
