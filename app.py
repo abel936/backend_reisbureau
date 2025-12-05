@@ -55,6 +55,11 @@ def donny_destinations_route():
     result = donny.get_destinations_from_departure()
     return result
 
+@app.route("/donny/checkin", methods=["GET", "POST"])
+def donny_checkin_route():
+    result = donny.checkin()
+    return result
+
 @app.route("/julian", methods=["GET"])
 def julian_route():
     return julian.start()
@@ -74,6 +79,10 @@ def julian_ai_recommendation_route():
 @app.route("/julian/speech-token", methods=["GET"])
 def julian_speech_token():
     return julian.speech_token()
+
+@app.route("/julian/session", methods=["GET"])
+def julian_session_route():
+    return julian.session_status()
 
 @app.route("/esmee", methods=["GET", "POST"])
 def esmee_route():

@@ -3,7 +3,7 @@ mysql-connector-python
 pyodbc
 flask
 flask-cors
-dotenv
+python-dotenv
 openai
 azure-storage-blob
 requests

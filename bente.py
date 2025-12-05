@@ -1,4 +1,9 @@
+from flask import request, jsonify
+from openai import OpenAI
+from dotenv import load_dotenv
+import os
 from connect_with_db import get_connection
+
 
 def start():
     connection = get_connection()
@@ -31,6 +36,7 @@ AND c.country_id = ap.country_id;
         row_dict = dict(zip(keys, row))
 
         # (BB) Tijd omzetten naar string
+        row_dict['vertrekdatum'] = row_dict['vertrekdatum'].strftime("%Y-%m-%d")
         row_dict['vertrektijd'] = row_dict['vertrektijd'].strftime("%H:%M:%S")
         row_dict['aankomsttijd'] = row_dict['aankomsttijd'].strftime("%H:%M:%S")
         
