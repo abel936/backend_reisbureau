@@ -59,13 +59,8 @@ def get_destinations_from_departure():
     return data
 
 # =======================
-# Document Intelligence integratie
+# Document Intelligence integratie (DL)
 # =======================
-
-DOCINT_ENDPOINT = os.getenv("DOCUMENTINTELLIGENCE_ENDPOINT")
-DOCINT_API_KEY = os.getenv("DOCUMENTINTELLIGENCE_API_KEY")
-DOCINT_MODEL_ID = os.getenv("DOCUMENTINTELLIGENCE_MODEL_ID")
-
 
 def _get_field_value(field):
     """Hulpfunctie om veilig de waarde uit een Document Intelligence field te halen."""

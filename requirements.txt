@@ -7,4 +7,5 @@ python-dotenv
 openai
 azure-storage-blob
 requests
-
+azure-core
+azure-ai-documentintelligence
