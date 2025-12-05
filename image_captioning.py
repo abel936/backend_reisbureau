@@ -1,6 +1,7 @@
 import requests
 from PIL import Image
 from transformers import BlipProcessor, BlipForConditionalGeneration
+from chatbb import Afb_generen_met_url
 
 def generate_captions(img_url):
     processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
@@ -16,5 +17,7 @@ def generate_captions(img_url):
     return processor.decode(out[0], skip_special_tokens=True)
 
 
-url_ = "https://ack2511urlgenererenbb.blob.core.windows.net/images/7e0f5d6094f645bf8cd44e298f841fe9.png?se=2025-12-05T12%3A54%3A34Z&sp=r&sv=2025-11-05&sr=b&sig=J%2BKKPMFxCI6/V3IVhAK3Hti5laakP0eBoMJKzajlRb8%3D"
+url_, img_ = Afb_generen_met_url()
+
+print(img_)
 print(generate_captions(url_))
