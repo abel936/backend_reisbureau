@@ -1,5 +1,5 @@
-from flask import Flask, request, jsonify, render_template
-from flask_cors import CORS
+from flask import Flask, request, jsonify, render_template # type: ignore
+from flask_cors import CORS, cross_origin # type: ignore
 import abel, bente, donny, julian, esmee, vlucht_boeken
 import os
 

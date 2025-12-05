@@ -1,9 +1,9 @@
 from connect_with_db import get_connection
-from flask import Flask, request, Response, abort
+from flask import Flask, request, Response, abort, jsonify, session # type: ignore
 from math import radians, sin, cos, sqrt, atan2
-from openai import OpenAI
+from openai import OpenAI # type: ignore
 import os
-from dotenv import load_dotenv
+from dotenv import load_dotenv # type: ignore
 from datetime import datetime
 from MLmodel import predict_capacity_percentage
 
