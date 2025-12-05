@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
-import abel, bente, donny, julian, esmee
+import abel, bente, donny, julian, esmee, vlucht_boeken
 import os
 
 app = Flask(__name__)
@@ -80,9 +80,28 @@ def julian_ai_recommendation_route():
 def julian_speech_token():
     return julian.speech_token()
 
+@app.route("/julian/session", methods=["GET"])
+def julian_session_route():
+    return julian.session_status()
+
 @app.route("/esmee", methods=["GET", "POST"])
 def esmee_route():
     result = esmee.start()
+    return result
+
+@app.route("/vlucht_boeken/departureFrom", methods=["GET", "POST"])
+def VB_departure_from():
+    result = vlucht_boeken.get_all_airports_we_can_depart_from()
+    return result
+
+@app.route("/vlucht_boeken/arrivalAt", methods=["GET", "POST"])
+def VB_arrival_at():
+    result = vlucht_boeken.get_all_arrival_airports_departing_from(request.get_json())
+    return result
+
+@app.route("/vlucht_boeken/departureDate", methods=["GET", "POST"])
+def VB_departure_date():
+    result = vlucht_boeken.get_departure_dates(request.get_json())
     return result
 
 if __name__ == '__main__':  
