@@ -499,6 +499,8 @@ def ai_recommendation():
             "However, if the notes are vague, contradictory, or clearly impossible, \n"
             "use your best judgment to provide a reasonable recommendation.\n"
             "- Use a helpful, enthusiastic but not cheesy tone.\n"
+            "Make sure the recommendation is in the language of the extra notes,\n"
+            "or Dutch if no notes were provided in another language.\n"
         )
 
         user_message = (
